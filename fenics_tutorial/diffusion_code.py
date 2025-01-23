@@ -26,8 +26,8 @@
 # The first difference from the previous problem is that we are not using a unit square. We create the rectangular domain with `dolfinx.mesh.create_rectangle`.
 
 # +
-import matplotlib as mpl
-import pyvista
+
+# import pyvista
 import ufl
 import numpy as np
 
