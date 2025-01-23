@@ -29,9 +29,9 @@
 
 from petsc4py import PETSc
 from mpi4py import MPI
-import ufl
 from dolfinx import mesh, fem
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector, apply_lifting, create_vector, set_bc
+import ufl
 import numpy
 t = 0  # Start time
 T = 2  # End time
@@ -88,6 +88,11 @@ u_n.interpolate(u_exact)
 f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
 # We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
+
+"""u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
+F = u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx
+a = fem.form(ufl.lhs(F))
+L = fem.form(ufl.rhs(F))"""
 
 u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
 F = u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx
