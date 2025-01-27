@@ -89,11 +89,6 @@ f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
 # We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
 
-"""u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
-F = u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx
-a = fem.form(ufl.lhs(F))
-L = fem.form(ufl.rhs(F))"""
-
 u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
 F = u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx
 a = fem.form(ufl.lhs(F))

@@ -91,11 +91,6 @@ f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
 # We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
 
-"""u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
-F = u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx
-a = fem.form(ufl.lhs(F))
-L = fem.form(ufl.rhs(F))"""
-
 u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
 # F = u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx # Implicit
 F = u * v * ufl.dx + dt * ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx # Explicit
@@ -125,30 +120,6 @@ solver.getPC().setType(PETSc.PC.Type.LU)
 # Then, we need to apply the boundary condition to this vector. We do this by using the lifting operation,
 # which applies the boundary condition such that symmetry of the matrix is preserved.
 # Then we solve the problem using PETSc and update `u_n` with the data from `uh`.
-
-"""
-for n in range(num_steps):
-    # Update Diriclet boundary condition
-    u_exact.t += dt
-    u_D.interpolate(u_exact)
-
-    # Update the right hand side reusing the initial vector
-    with b.localForm() as loc_b:
-        loc_b.set(0)
-    assemble_vector(b, L)
-
-    # Apply Dirichlet boundary condition to the vector
-    apply_lifting(b, [a], [[bc]])
-    b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    set_bc(b, [bc])
-
-    # Solve linear problem
-    solver.solve(b, uh.x.petsc_vec)
-    uh.x.scatter_forward()
-
-    # Update solution at previous time step (u_n)
-    u_n.x.array[:] = uh.x.array
-"""
 
 for n in range(num_steps):
     # Update Dirichlet boundary condition for this time step
