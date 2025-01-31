@@ -82,6 +82,8 @@ a = fem.form(ufl.lhs(F))
 L = fem.form(ufl.rhs(F))
 
 k = fem.TrialFunction(V)
+
+
 for n in range(num_steps):
     # Create the matrix and vector for the linear problem
     A = assemble_matrix(a, bcs=[bc])
