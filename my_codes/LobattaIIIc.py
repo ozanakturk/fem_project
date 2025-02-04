@@ -10,7 +10,7 @@ import time
 
 t = 0  # Start time
 T = 2  # End time
-num_steps = 530  # Number of time steps # Default: 20
+num_steps = 1000  # Number of time steps # Default: 20
 dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
@@ -20,6 +20,13 @@ beta = 1.2
 nx, ny = 5, 5
 domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, ny, mesh.CellType.triangle)
 V = fem.functionspace(domain, ("Lagrange", 1))
+#V = ufl.MixedFunctionSpace(domain, "Lagrange", 1)
+
+# Mixed function space
+num_stages = 2
+from basix.ufl import mixed_element
+mixed = mixed_element([V.ufl_element()] * num_stages)
+V = fem.functionspace(domain, mixed)
 
 # ## Defining the exact solution
 # As in the membrane problem, we create a Python-class to resemble the exact solution
@@ -61,13 +68,14 @@ f1 = fem.Constant(domain, beta - 2 - 2 * alpha)
 
 uh = fem.Function(V)
 
-k0 = fem.TrialFunction(V)
-k1 = fem.TrialFunction(V)
-v0 = fem.TestFunction(V)
-v1 = fem.TestFunction(V)
+k0 = ufl.TrialFunction(V)
+k1 = ufl.TrialFunction(V)
+v0 = ufl.TestFunction(V)
+v1 = ufl.TestFunction(V)
 
 # Butcher Table
-A = [[1/2, -1/2], [1/2, 1/2]]
+#A = [[1/2, -1/2], [1/2, 1/2]]
+A = [[0, 0], [1, 0]]
 b = [0, 1]
 c = [1/2, 1/2]
 
@@ -76,12 +84,12 @@ u0 = u_n + A[0][0] * dt * k0 + A[0][1] * dt * k1
 u1 = u_n + A[1][0] * dt * k0 + A[1][1] * dt * k1
 
 # We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
-F = k0 * v0 * ufl.dx + dt * ufl.dot(ufl.grad(k0), ufl.grad(v0)) * ufl.dx + k1 * v1 * ufl.dx + dt * ufl.dot(ufl.grad(k1), ufl.grad(v1)) * ufl.dx - (u0 + dt * f0) * v0 * ufl.dx - (u0 + dt * f0) * v0 * ufl.dx
+F = k0 * v0 * ufl.dx + dt * ufl.dot(ufl.grad(u0), ufl.grad(v0)) * ufl.dx + k1 * v1 * ufl.dx + dt * ufl.dot(ufl.grad(u1), ufl.grad(v1)) * ufl.dx - (u0 + dt * f0) * v0 * ufl.dx - (u0 + dt * f0) * v0 * ufl.dx
 
 a = fem.form(ufl.lhs(F))
 L = fem.form(ufl.rhs(F))
 
-k = fem.TrialFunction(V)
+k = ufl.TrialFunction(V)
 
 
 for n in range(num_steps):
@@ -127,5 +135,5 @@ if domain.comm.rank == 0:
 error_max = domain.comm.allreduce(numpy.max(numpy.abs(uh.x.array - u_D.x.array)), op=MPI.MAX)
 if domain.comm.rank == 0:
     print(f"Error_max: {error_max:.2e}")
-return
+
 

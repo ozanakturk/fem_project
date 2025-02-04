@@ -58,7 +58,7 @@ f = fem.Constant(domain, beta - 2 - 2 * alpha)
 # We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
 
 print()
-a = 4
+a = 2
 if a == 1:
     print("implicit")
     rk_solver("Backward Euler", domain, u_n, u_exact, u_D, bc, dt, num_steps, f, V)
