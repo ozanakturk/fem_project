@@ -2,19 +2,42 @@
 
 from petsc4py import PETSc
 from mpi4py import MPI
+import ufl.finiteelement
 from dolfinx import mesh, fem
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector, apply_lifting, create_vector, set_bc
 import ufl
-import numpy
+import numpy as np
 import time
 
 t = 0  # Start time
 T = 2  # End time
-num_steps = 1000  # Number of time steps # Default: 20
+num_steps = 600  # Number of time steps (Boundary: 561)
 dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
 
+# Butcher Table
+
+A = [[1/2, -1/2], [1/2, 1/2]]
+#A = [[0, 0], [1, 0]]
+b = [1/2, 1/2]
+c = [0, 1]
+num_stages = 2
+
+
+"""
+A = np.array([[5/12, -1/12], [3/4, 1/4]])
+b = np.array([3/4, 1/4])
+c = np.array([1/3, 1])
+num_stages = len(b)
+"""
+
+"""
+A = np.array([[0,0], [0,0]])
+b = np.array([0, 0])
+c = np.array([0, 0])
+num_stages = len(b)
+"""
 # As for the previous problem, we define the mesh and appropriate function spaces.
 
 nx, ny = 5, 5
@@ -23,14 +46,11 @@ V = fem.functionspace(domain, ("Lagrange", 1))
 #V = ufl.MixedFunctionSpace(domain, "Lagrange", 1)
 
 # Mixed function space
-num_stages = 2
 from basix.ufl import mixed_element
 mixed = mixed_element([V.ufl_element()] * num_stages)
-V = fem.functionspace(domain, mixed)
+Vbig = fem.functionspace(domain, mixed)
 
 # ## Defining the exact solution
-# As in the membrane problem, we create a Python-class to resemble the exact solution
-
 class exact_solution():
     def __init__(self, alpha, beta, t):
         self.alpha = alpha
@@ -45,8 +65,18 @@ u_exact = exact_solution(alpha, beta, t)
 
 # ## Defining the boundary condition
 
-u_D = fem.Function(V)
-u_D.interpolate(u_exact)
+"""
+du_Ddt = num_stages * [None]
+bc = []
+import basix
+for i in range(num_stages):
+    du_Ddt[i] = Expression('2*beta*t', degree=2, alpha=alpha, beta=beta, t=0)
+    du_Ddt[i].t = t + c[i] * dt
+    bc.append(DirichletBC(Vbig.sub(i), du_Ddt[i], boundary))
+"""
+u_D = fem.Function(Vbig)
+u_D.sub(0).interpolate(u_exact)
+u_D.sub(1).interpolate(u_exact)
 tdim = domain.topology.dim
 fdim = tdim - 1
 domain.topology.create_connectivity(fdim, tdim)
@@ -56,6 +86,8 @@ bc = fem.dirichletbc(u_D, fem.locate_dofs_topological(V, fdim, boundary_facets))
 # ## Defining the variational formulation
 
 u_n = fem.Function(V)
+"""u_D = fem.Expression('1 + x[0]*x[0] + alpha*x[1]*x[1] + beta*t*t',
+                 degree=2, alpha=alpha, beta=beta, t=0)"""
 u_n.interpolate(u_exact)
 
 # As f is a constant independent of t, we can define it as a constant.
@@ -72,12 +104,6 @@ k0 = ufl.TrialFunction(V)
 k1 = ufl.TrialFunction(V)
 v0 = ufl.TestFunction(V)
 v1 = ufl.TestFunction(V)
-
-# Butcher Table
-#A = [[1/2, -1/2], [1/2, 1/2]]
-A = [[0, 0], [1, 0]]
-b = [0, 1]
-c = [1/2, 1/2]
 
 # Define solutions per stage. Todo: Should be generalized via a for-loop
 u0 = u_n + A[0][0] * dt * k0 + A[0][1] * dt * k1
@@ -105,7 +131,8 @@ for n in range(num_steps):
 
     # Update Diriclet boundary condition
     u_exact.t += dt
-    u_D.interpolate(u_exact)
+    u_D.sub(0).interpolate(u_exact)
+    u_D.sub(1).interpolate(u_exact)
 
     # Update the right hand side reusing the initial vector
     with b.localForm() as loc_b:
@@ -127,13 +154,14 @@ for n in range(num_steps):
 V_ex = fem.functionspace(domain, ("Lagrange", 2))
 u_ex = fem.Function(V_ex)
 u_ex.interpolate(u_exact)
-error_L2 = numpy.sqrt(domain.comm.allreduce(fem.assemble_scalar(fem.form((uh - u_ex)**2 * ufl.dx)), op=MPI.SUM))
+error_L2 = np.sqrt(domain.comm.allreduce(fem.assemble_scalar(fem.form((uh - u_ex)**2 * ufl.dx)), op=MPI.SUM))
 if domain.comm.rank == 0:
     print(f"L2-error: {error_L2:.2e}")
 
+"""
 # Compute values at mesh vertices
 error_max = domain.comm.allreduce(numpy.max(numpy.abs(uh.x.array - u_D.x.array)), op=MPI.MAX)
 if domain.comm.rank == 0:
     print(f"Error_max: {error_max:.2e}")
-
+"""
 
