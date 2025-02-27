@@ -1,0 +1,4 @@
+docker run -it -v C:/Users/ga97bab/Documents/Docker/fenicsx_stable_0_6_0:/home/ --name=fenics_stable_0.6.0 dolfinx/dolfinx:v0.6.0
+
+docker run -it -v C:/Users/Fatih/Documents/Docker/fenicsx_stable_0_9_0_a:/home/ --name=fenics_stable_0_9_0_a dolfinx/dolfinx:v0.9.0
+

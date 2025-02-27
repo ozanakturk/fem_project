@@ -19,16 +19,22 @@ msh = mesh.create_unit_square(MPI.COMM_WORLD, nx, ny)
 
 # Get Runge-Kutta scheme (assuming LobattoIIIC(3) is defined elsewhere)
 #bt = LobattoIIIC(3)  # Make sure this is defined
-num_stages = 2
-ns = 2
-A = [[1/2, -1/2], [1/2, 1/2]] 
+"""
+# Heun's method two-stage
+A = [[0, 0], [1, 0]] 
 #A = [[0, 0], [1, 0]]
 b = [1/2, 1/2]
 c = [0, 1]
+"""
 
+A = [[0]] 
+#A = [[0, 0], [1, 0]]
+b = [1]
+c = [0]
+num_stages = len(c)
 
 # Create mixed function space depending on the number of stages
-V = fem.functionspace(msh, ("CG", 1))  # Continuous Galerkin (P1 elements)
+V = fem.functionspace(msh, ("CG", 1))
 
 if num_stages == 1:
     Vbig = V
@@ -40,9 +46,9 @@ else:
 # Define boundary condition function
 def boundary(x):
     return np.full(x.shape[1], True)  # True for all boundary points
-
+"""
 # Define boundary conditions (Dirichlet BC)
-du_Ddt = []
+du_Ddt = ns * []
 bc = []
 for i in range(ns):
     # Define a function to hold the boundary condition
@@ -58,6 +64,39 @@ for i in range(ns):
     msh.topology.create_connectivity(fdim, tdim)
     boundary_facets = mesh.exterior_facet_indices(msh.topology)
     bc.append(fem.dirichletbc(du_Ddt_i, fem.locate_dofs_topological(Vbig.sub(i), fdim, boundary_facets)))
+"""
+
+# Define boundary conditions (Dirichlet BC)
+class boundary_cond():
+    def __init__(self, alpha, beta, t):
+        self.alpha = alpha
+        self.beta = beta
+        self.t = t
+
+    def __call__(self, x):
+        return self.beta
+bound_1 = boundary_cond(alpha, beta, t)
+
+du_Ddt = num_stages * [None]
+bc = []
+for i in range(num_stages):
+    # Define a function to hold the boundary condition
+    if num_stages == 1:
+        du_Ddt[i] = fem.Function(V)
+    else:
+        du_Ddt[i] = fem.Function(Vbig.sub(i))
+    du_Ddt[i].interpolate(lambda x: np.full(x.shape[1], beta))
+    for j in range (i-1):
+        du_Ddt[i].t = du_Ddt[i].t + c[j] * dt
+    
+    tdim = msh.topology.dim
+    fdim = tdim - 1
+    msh.topology.create_connectivity(fdim, tdim)
+    boundary_facets = mesh.exterior_facet_indices(msh.topology)
+    if(num_stages==1):
+        bc.append(fem.dirichletbc(du_Ddt[i], fem.locate_dofs_topological(Vbig, fdim, boundary_facets)))
+    else:
+        bc.append(fem.dirichletbc(du_Ddt[i], fem.locate_dofs_topological(Vbig.sub(i), fdim, boundary_facets)))
 
 # Define initial condition
 u_ini = fem.Function(V)
@@ -65,24 +104,33 @@ u_ini.interpolate(lambda x: 1 + x[0]**2 + alpha * x[1]**2 + beta * t**2)
 
 # Define right-hand side function f
 f = []
-for i in range(ns):
-    f_i = fem.Function(V)
-    t_new = t + c[i] * dt
-    f_i.interpolate(lambda x: np.full(x.shape[1], 2 * beta * t_new - 2 - 2 * alpha))
-    f.append(f_i)
+if num_stages == 1:
+    f = fem.Constant(msh, beta - 2 - 2 * alpha)
+else:
+    for i in range(num_stages):
+        f_i = fem.Function(V)
+        t_new = t + c[i] * dt
+        f_i.interpolate(lambda x: np.full(x.shape[1], beta - 2 - 2 * alpha))
+        f.append(f_i)
 
 #########################################
 
-# Define trial and test functions
-k = ufl.TrialFunctions(Vbig)
-v = ufl.TestFunctions(Vbig)
-
-# Define solutions per stage (generalized)
-u_stages = [u_ini + sum(A[i][j] * dt * k[j] for j in range(num_stages)) for i in range(num_stages)]
-
 # Define weak form
-F = sum(ufl.dot(k[i], v[i]) * ufl.dx + ufl.dot(ufl.grad(u_stages[i]), ufl.grad(v[i])) * ufl.dx - f[i] * v[i] * ufl.dx
-        for i in range(num_stages))
+if num_stages == 1:
+    k = ufl.TrialFunction(Vbig)
+    v = ufl.TestFunction(Vbig)
+
+    # Define solutions per stage (generalized)
+    u_stages = u_ini# + A[0][0] * dt * k     
+    F = (ufl.dot(k, v) * ufl.dx) + (dt * ufl.dot(ufl.grad(u_stages), ufl.grad(v)) * ufl.dx) - (ufl.dot(u_stages, v) * ufl.dx) - (ufl.dot(f, v) * ufl.dx)    
+else:
+    k = ufl.TrialFunctions(Vbig)
+    v = ufl.TestFunctions(Vbig)
+
+    # Define solutions per stage (generalized)
+    u_stages = [u_ini + sum(A[i][j] * dt * k[j] for j in range(num_stages)) for i in range(num_stages)]
+    F = sum(ufl.dot(k[i], v[i]) * ufl.dx + ufl.dot(ufl.grad(u_stages[i]), ufl.grad(v[i])) * ufl.dx - f[i] * v[i] * ufl.dx
+            for i in range(num_stages))
 
 a, L = fem.form(ufl.lhs(F)), fem.form(ufl.rhs(F))
 
@@ -104,12 +152,16 @@ with io.XDMFFile(MPI.COMM_WORLD, "heat_gaussian/solution.xdmf", "w") as vtkfile:
 
     # Time-stepping loop
     for n in range(num_steps):
-
         # Update BCs and RHS
-        for i in range(ns):
-            t_new = t + c[i] * dt
-            du_Ddt[i].interpolate(lambda x: np.full(x.shape[1], 2 * beta * t_new))
-            f[i].interpolate(lambda x: np.full(x.shape[1], 2 * beta * t_new - 2 - 2 * alpha))
+        if num_stages == 1:
+            t_new = t + c[0] * dt
+            du_Ddt[0].interpolate(lambda x: np.full(x.shape[1], beta))
+            # f.interpolate...
+        else:
+            for i in range(num_stages):
+                t_new = t + c[i] * dt
+                du_Ddt[i].interpolate(lambda x: np.full(x.shape[1], beta))
+                f[i].interpolate(lambda x: np.full(x.shape[1], beta - 2 - 2 * alpha))
 
         # Assemble system
         A_mat.zeroEntries()
@@ -123,10 +175,12 @@ with io.XDMFFile(MPI.COMM_WORLD, "heat_gaussian/solution.xdmf", "w") as vtkfile:
         # Solve system
         solver.solve(b_vec, k_sol.x.petsc_vec)
 
-        print(k_sol.sub(0).x.array)
+        #print(k_sol.sub(0).x.array)
+        
         # Assemble solution from stages
         u_sol = fem.Function(V)
-        u_sol.interpolate(lambda x: u_ini.x.array + dt * (b[0] * k_sol.sub(0).collapse().x.array + b[1] * k_sol.sub(1).collapse().x.array))
+        #u_sol.interpolate(lambda x: u_ini.x.array + dt * (b[0] * k_sol.sub(0).collapse().x.array + b[1] * k_sol.sub(1).collapse().x.array))
+        u_sol.interpolate(lambda x: u_ini.x.array + dt * (b[0] * k_sol.x.array))
 
         # Write to file
         #vtkfile.write_function(u_sol, t)
@@ -137,7 +191,7 @@ with io.XDMFFile(MPI.COMM_WORLD, "heat_gaussian/solution.xdmf", "w") as vtkfile:
         # Compute error
         t += dt
         u_ref = fem.Function(V)
-        u_ref.interpolate(lambda x: 1 + x[0]**2 + alpha * x[1]**2 + beta * t**2)
+        u_ref.interpolate(lambda x: 1 + x[0]**2 + alpha * x[1]**2 + beta * t)
 
         error = fem.Function(V)
         error.interpolate(lambda x: np.abs((u_ref.x.array - u_sol.x.array) / u_ref.x.array))
