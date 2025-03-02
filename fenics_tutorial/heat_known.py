@@ -122,7 +122,7 @@ for n in range(num_steps):
     # Update Diriclet boundary condition
     u_exact.t += dt
     u_D.interpolate(u_exact)
-
+    
     # Update the right hand side reusing the initial vector
     with b.localForm() as loc_b:
         loc_b.set(0)
