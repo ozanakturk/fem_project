@@ -63,7 +63,6 @@ class exact_solution():
     def __call__(self, x):
         return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
 
-
 u_exact = exact_solution(alpha, beta, t)
 
 # ## Defining the boundary condition
