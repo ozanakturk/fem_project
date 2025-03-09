@@ -29,7 +29,7 @@
 
 from petsc4py import PETSc
 from mpi4py import MPI
-from dolfinx import mesh, fem, io
+from dolfinx import mesh, fem
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector, apply_lifting, create_vector, set_bc
 import ufl
 import numpy
@@ -40,19 +40,14 @@ dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
 
-# Butcher Tableau
-
-bt_a = 1.0
-bt_b = 1.0
-bt_c = 1.0
-
 # As for the previous problem, we define the mesh and appropriate function spaces.
 
 # +
 
 nx, ny = 5, 5
 domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, ny, mesh.CellType.triangle)
-V = fem.functionspace(domain, ("Lagrange", 1)) #CG
+V = fem.functionspace(domain, ("Lagrange", 1))
+
 
 # -
 
@@ -66,31 +61,27 @@ class exact_solution():
         self.t = t
 
     def __call__(self, x):
-        #return 1 + x[0]**2 + self.alpha * x[1]**2 + (2 + 2 * self.beta) * self.t
-        return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
+        return 1 + x[0]**2 + self.alpha * x[1]**2 + (2 + 2 * self.alpha) * self.t
+        return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t * self.t
 
 u_exact = exact_solution(alpha, beta, t)
 
-class boundary_condition():
-    def __init__(self, alpha, beta, t):
-        self.alpha = alpha
-        self.beta = beta
-        self.t = t
+# ## Defining the boundary condition
+# As in the previous chapters, we define a Dirichlet boundary condition over the whole boundary
 
-    def __call__(self, x):
-        return self.beta + x[0] * 0
-        #return 2 * self.beta * self.t + x[0] * 0
-        #return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
-
-du_Ddt_help = boundary_condition(alpha, beta, t)
-
-du_D_dt = fem.Function(V)
-du_D_dt.interpolate(du_Ddt_help)
+u_D = fem.Function(V)
+u_D.interpolate(u_exact)
 tdim = domain.topology.dim
 fdim = tdim - 1
 domain.topology.create_connectivity(fdim, tdim)
 boundary_facets = mesh.exterior_facet_indices(domain.topology)
-bc = fem.dirichletbc(du_D_dt, fem.locate_dofs_topological(V, fdim, boundary_facets))
+bc = fem.dirichletbc(u_D, fem.locate_dofs_topological(V, fdim, boundary_facets))
+
+# ## Defining the variational formualation
+# As we have set $t=0$ in `u_exact`, we can reuse this variable to obtain $u_n$ for the first time step.
+
+u_n = fem.Function(V)
+u_n.interpolate(u_exact)
 
 # As $f$ is a constant independent of $t$, we can define it as a constant.
 
@@ -101,52 +92,52 @@ class source_term():
         self.t = t
 
     def __call__(self, x):
-        #return x[0] * 0
-        return self.beta - 2 - 2 * alpha + x[0] * 0
+        return x[0] * 0
         return 2 * self.beta * self.t - 2 - 2 * self.alpha + x[0] * 0
 
-f_help = source_term(alpha, beta, t)
-
+source = source_term(alpha, beta, t)
 f = fem.Function(V)
-f.interpolate(f_help)
-# f = fem.Constant(domain, beta - 2 - 2 * alpha)
+f.interpolate(source)
 
-xdmf = io.XDMFFile(domain.comm, "heat_edit.xdmf", "w")
-xdmf.write_mesh(domain)
+# We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
 
-u_n = fem.Function(V)
-u_n.interpolate(u_exact)
+u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
+F = u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx
+a = fem.form(ufl.lhs(F))
+L = fem.form(ufl.rhs(F))
 
-k = ufl.TrialFunction(V)
-v = ufl.TestFunction(V)
-uh = fem.Function(V)
-
-xdmf.write_function(uh, t)
-
-def problem(u):
-    return u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - f * v * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx
-
-a = fem.form(ufl.lhs(problem(k)))
-L = fem.form(ufl.rhs(problem(k)))
+# ## Create the matrix and vector for the linear problem
+# To ensure that we are solving the variational problem efficiently, we will create several structures which can reuse data, such as matrix sparisty patterns. Especially note as the bilinear form `a` is independent of time, we only need to assemble the matrix once.
 
 A = assemble_matrix(a, bcs=[bc])
 A.assemble()
 b = create_vector(L)
+uh = fem.Function(V)
+
+# ## Define a linear variational solver
+# We will use [PETSc](https://www.mcs.anl.gov/petsc/) to solve the resulting linear algebra problem. We use the Python-API `petsc4py` to define the solver. We will use a linear solver.
 
 solver = PETSc.KSP().create(domain.comm)
 solver.setOperators(A)
 solver.setType(PETSc.KSP.Type.PREONLY)
 solver.getPC().setType(PETSc.PC.Type.LU)
 
+# ## Solving the time-dependent problem
+# With these structures in place, we create our time-stepping loop.
+# In this loop, we first update the Dirichlet boundary condition by interpolating the updated
+# expression `u_exact` into `V`. The next step is to re-assemble the vector `b`, with the update `u_n`.
+# Then, we need to apply the boundary condition to this vector. We do this by using the lifting operation,
+# which applies the boundary condition such that symmetry of the matrix is preserved.
+# Then we solve the problem using PETSc and update `u_n` with the data from `uh`.
+
 for n in range(num_steps):
     # Update Diriclet boundary condition
-    du_Ddt_help.t += dt * bt_c
-    du_D_dt.interpolate(du_Ddt_help)
+    u_exact.t += dt
+    u_D.interpolate(u_exact)
 
-    # Update source term
-    f_help.t +=  dt * bt_c
-    f.interpolate(f_help)
-
+    source.t += dt
+    f.interpolate(source)
+    
     # Update the right hand side reusing the initial vector
     with b.localForm() as loc_b:
         loc_b.set(0)
@@ -156,14 +147,20 @@ for n in range(num_steps):
     apply_lifting(b, [a], [[bc]])
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     set_bc(b, [bc])
-    
+
+    # Solve linear problem
     solver.solve(b, uh.x.petsc_vec)
     uh.x.scatter_forward()
-    xdmf.write_function(uh, du_Ddt_help.t)
-    
-    u_n.x.array[:] += dt * bt_b * uh.x.array
-xdmf.close()
 
+    # Update solution at previous time step (u_n)
+    u_n.x.array[:] = uh.x.array
+
+# ## Verifying the numerical solution
+# As in the first chapter, we compute the L2-error and the error at the mesh vertices for the last time step.
+# to verify our implementation.
+
+# +
+# Compute L2 error and error at nodes
 V_ex = fem.functionspace(domain, ("Lagrange", 2))
 u_ex = fem.Function(V_ex)
 u_ex.interpolate(u_exact)
@@ -172,6 +169,6 @@ if domain.comm.rank == 0:
     print(f"L2-error: {error_L2:.2e}")
 
 # Compute values at mesh vertices
-error_max = domain.comm.allreduce(numpy.max(numpy.abs(uh.x.array - du_D_dt.x.array)), op=MPI.MAX)
+error_max = domain.comm.allreduce(numpy.max(numpy.abs(uh.x.array - u_D.x.array)), op=MPI.MAX)
 if domain.comm.rank == 0:
     print(f"Error_max: {error_max:.2e}")

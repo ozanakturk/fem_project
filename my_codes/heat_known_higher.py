@@ -29,7 +29,7 @@
 
 from petsc4py import PETSc
 from mpi4py import MPI
-from dolfinx import mesh, fem, io
+from dolfinx import mesh, fem
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector, apply_lifting, create_vector, set_bc
 import ufl
 import numpy
@@ -111,23 +111,24 @@ f = fem.Function(V)
 f.interpolate(f_help)
 # f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "heat_edit.xdmf", "w")
-xdmf.write_mesh(domain)
+# We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
 
 u_n = fem.Function(V)
 u_n.interpolate(u_exact)
 
 k = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
-uh = fem.Function(V)
 
-xdmf.write_function(uh, t)
+k_sol = fem.Function(V)
 
 def problem(u):
-    return u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - f * v * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx
+    return u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - (u_n + dt * f) * v * ufl.dx
 
-a = fem.form(ufl.lhs(problem(k)))
-L = fem.form(ufl.rhs(problem(k)))
+def k_f(u):
+    return ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - f * v * ufl.dx
+
+"""a = fem.form(ufl.lhs(problem(k)))
+L = fem.form(ufl.rhs(k_f(k)))
 
 A = assemble_matrix(a, bcs=[bc])
 A.assemble()
@@ -136,7 +137,7 @@ b = create_vector(L)
 solver = PETSc.KSP().create(domain.comm)
 solver.setOperators(A)
 solver.setType(PETSc.KSP.Type.PREONLY)
-solver.getPC().setType(PETSc.PC.Type.LU)
+solver.getPC().setType(PETSc.PC.Type.LU)"""
 
 for n in range(num_steps):
     # Update Diriclet boundary condition
@@ -146,32 +147,67 @@ for n in range(num_steps):
     # Update source term
     f_help.t +=  dt * bt_c
     f.interpolate(f_help)
+    
+    a = fem.form(ufl.lhs(k_f(k))) #########################################
+    L = fem.form(ufl.rhs(problem(k)))
 
-    # Update the right hand side reusing the initial vector
-    with b.localForm() as loc_b:
-        loc_b.set(0)
-    assemble_vector(b, L)
+    A = assemble_matrix(a, bcs=[bc])
+    A.assemble()
+    b = create_vector(L)
 
-    # Apply Dirichlet boundary condition to the vector
+    solver = PETSc.KSP().create(domain.comm)
+    solver.setOperators(A)
+    solver.setType(PETSc.KSP.Type.PREONLY)
+    solver.getPC().setType(PETSc.PC.Type.LU)
+    
     apply_lifting(b, [a], [[bc]])
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     set_bc(b, [bc])
-    
-    solver.solve(b, uh.x.petsc_vec)
-    uh.x.scatter_forward()
-    xdmf.write_function(uh, du_Ddt_help.t)
-    
-    u_n.x.array[:] += dt * bt_b * uh.x.array
-xdmf.close()
 
+    u1 = fem.Function(V)
+    u1 += dt * 1/2 * b
+    
+    solver.solve(b, u1.x.petsc_vec)
+    u1.x.scatter_forward()
+
+    a = fem.form(ufl.lhs(k_f(k))) #########################################
+    L = fem.form(ufl.rhs(problem(k)))
+
+    A = assemble_matrix(a, bcs=[bc])
+    A.assemble()
+    b = create_vector(L)
+
+    solver = PETSc.KSP().create(domain.comm)
+    solver.setOperators(A)
+    solver.setType(PETSc.KSP.Type.PREONLY)
+    solver.getPC().setType(PETSc.PC.Type.LU)
+    
+    apply_lifting(b, [a], [[bc]])
+    b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
+    set_bc(b, [bc])
+
+    u2 = fem.Function(V)
+    u2 += dt * 1/2 * b
+    
+    solver.solve(b, u1.x.petsc_vec)
+    u1.x.scatter_forward()
+    
+    u_n.x.array[:] = u_n.x.array + dt * bt_b * k_sol.x.array
+
+# ## Verifying the numerical solution
+# As in the first chapter, we compute the L2-error and the error at the mesh vertices for the last time step.
+# to verify our implementation.
+
+# +
+# Compute L2 error and error at nodes
 V_ex = fem.functionspace(domain, ("Lagrange", 2))
 u_ex = fem.Function(V_ex)
 u_ex.interpolate(u_exact)
-error_L2 = numpy.sqrt(domain.comm.allreduce(fem.assemble_scalar(fem.form((uh - u_ex)**2 * ufl.dx)), op=MPI.SUM))
+error_L2 = numpy.sqrt(domain.comm.allreduce(fem.assemble_scalar(fem.form((k_sol - u_ex)**2 * ufl.dx)), op=MPI.SUM))
 if domain.comm.rank == 0:
     print(f"L2-error: {error_L2:.2e}")
 
 # Compute values at mesh vertices
-error_max = domain.comm.allreduce(numpy.max(numpy.abs(uh.x.array - du_D_dt.x.array)), op=MPI.MAX)
+error_max = domain.comm.allreduce(numpy.max(numpy.abs(k_sol.x.array - du_D_dt.x.array)), op=MPI.MAX) # duD_dt
 if domain.comm.rank == 0:
     print(f"Error_max: {error_max:.2e}")

@@ -47,7 +47,7 @@ for n in range(num_steps):
     # RK4 intermediate stages
     k1 = fem.assemble_vector(fem.form(heat_residual(u_n)))
     u1 = fem.Function(V)
-    u1.vector.axpy(dt / 2, k1)
+    u1.vector.axpy(dt / 2, k1) # u1 = u1 + dt / 2 * k1
     u1.vector.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
     k2 = fem.assemble_vector(fem.form(heat_residual(u1)))

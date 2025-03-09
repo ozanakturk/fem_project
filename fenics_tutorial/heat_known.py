@@ -133,6 +133,7 @@ for n in range(num_steps):
     set_bc(b, [bc])
 
     # Solve linear problem
+    # Ax = b
     solver.solve(b, uh.x.petsc_vec)
     uh.x.scatter_forward()
 
