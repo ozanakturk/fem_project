@@ -33,31 +33,7 @@ from dolfinx import mesh, fem, io
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector, apply_lifting, create_vector, set_bc
 import ufl
 import numpy
-t = 0  # Start time
-T = 2  # End time
-num_steps = 20  # Number of time steps
-dt = (T - t) / num_steps  # Time step size
-alpha = 3
-beta = 1.2
 
-# Butcher Tableau
-
-bt_a = 1.0
-bt_b = 1.0
-bt_c = 1.0
-
-# As for the previous problem, we define the mesh and appropriate function spaces.
-
-# +
-
-nx, ny = 5, 5
-domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, ny, mesh.CellType.triangle)
-V = fem.functionspace(domain, ("Lagrange", 1)) #CG
-
-# -
-
-# ## Defining the exact solution
-# As in the membrane problem, we create a Python-class to resemble the exact solution
 
 class exact_solution():
     def __init__(self, alpha, beta, t):
@@ -68,11 +44,7 @@ class exact_solution():
     def __call__(self, x):
         #return 1 + x[0]**2 + self.alpha * x[1]**2 + (2 + 2 * self.beta) * self.t
         return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
-
-u_exact = exact_solution(alpha, beta, t)
-
-### Create function to compute maximum nodal error at the end
-u_maxError = fem.Function(V)
+    
 
 class boundary_condition():
     def __init__(self, alpha, beta, t):
@@ -82,21 +54,7 @@ class boundary_condition():
 
     def __call__(self, x):
         return self.beta + x[0] * 0
-        #return 2 * self.beta * self.t + x[0] * 0
-        #return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
-
-du_Ddt_help = boundary_condition(alpha, beta, t)
-
-du_D_dt = fem.Function(V)
-du_D_dt.interpolate(du_Ddt_help)
-tdim = domain.topology.dim
-fdim = tdim - 1
-domain.topology.create_connectivity(fdim, tdim)
-boundary_facets = mesh.exterior_facet_indices(domain.topology)
-bc = fem.dirichletbc(du_D_dt, fem.locate_dofs_topological(V, fdim, boundary_facets))
-
-# As $f$ is a constant independent of $t$, we can define it as a constant.
-
+    
 class source_term():
     def __init__(self, alpha, beta, t):
         self.alpha = alpha
@@ -104,28 +62,103 @@ class source_term():
         self.t = t
 
     def __call__(self, x):
-        #return x[0] * 0
-        return self.beta - 2 - 2 * alpha + x[0] * 0
-        return 2 * self.beta * self.t - 2 - 2 * self.alpha + x[0] * 0
+        return self.beta - 2 - 2 * self.alpha + x[0] * 0
 
-f_help = source_term(alpha, beta, t)
+class RK():
+    def __init__(self, a, b, c):
+        # Time and constants
+        self.t = 0  # Start time
+        self.T = 2  # End time
+        self.num_steps = 20  # Number of time steps
+        self.dt = (self.T - self.t) / self.num_steps  # Time step size
 
-f = fem.Function(V)
-f.interpolate(f_help)
-# f = fem.Constant(domain, beta - 2 - 2 * alpha)
+        self.bt_a = a
+        self.bt_b = b
+        self.bt_c = c
+        self.num_stages = len(c)
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/heat_edit.xdmf", "w")
-xdmf.write_mesh(domain)
+        self.domain = None
+        self.V = None
+        self.bc = None
 
-u_n = fem.Function(V, name = "u_n")
-u_n.interpolate(u_exact)
+        # Boundary and source term
+        self.du_D_dt = None
+        self.du_Ddt_help = None
+        self.f = None
+        self.f_help = None
+        self.u_maxError = None
 
-k = ufl.TrialFunction(V)
-v = ufl.TestFunction(V)
-uh = fem.Function(V, name = "uh")
+        # Exact solution and the initial condition (previous solution)
+        self.u_exact = None
+        self.u_n = None
 
-### Save the function u_n, as this is the complete solution. uh is only k
-xdmf.write_function(u_n, t)
+        #
+        self.xdmf = None
+
+        self.k = None
+        self.v = None
+        self.uh = None
+
+    def mesh(self, nx=5, ny=5, method="Lagrange", order=1):
+        self.domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, ny, mesh.CellType.triangle)
+        self.V = fem.functionspace(self.domain, (method, order)) #CG
+
+        # Visualisation
+        self.xdmf = io.XDMFFile(self.domain.comm, "heat_edit.xdmf", "w")
+        self.xdmf.write_mesh(self.domain)
+
+        ### Create function to compute maximum nodal error at the end
+        self.u_maxError = fem.Function(self.V)
+
+    def boundary(self, alpha=3, beta=1.2):
+        # The boundary condition
+        self.du_Ddt_help = boundary_condition(alpha, beta, self.t)
+        self.du_D_dt = fem.Function(self.V)
+        self.du_D_dt.interpolate(self.du_Ddt_help)
+        tdim = self.domain.topology.dim
+        fdim = tdim - 1
+        self.domain.topology.create_connectivity(fdim, tdim)
+        boundary_facets = mesh.exterior_facet_indices(self.domain.topology)
+        self.bc = fem.dirichletbc(self.du_D_dt, fem.locate_dofs_topological(self.V, fdim, boundary_facets))
+
+    def source(self, alpha=3, beta=1.2):
+        # The source term
+        self.f_help = source_term(alpha, beta, self.t)
+        self.f = fem.Function(self.V)
+        self.f.interpolate(self.f_help)
+
+    def exact(self, alpha=3, beta=1.2):
+        # The exact solution
+        self.u_exact = exact_solution(alpha, beta, self.t)
+        self.u_n = fem.Function(self.V, name = "u_n")
+        self.u_n.interpolate(self.u_exact)
+
+    def a(self):
+        self.k = ufl.TrialFunction(self.V)
+        self.v = ufl.TestFunction(self.V)
+        self.uh = fem.Function(self.V, name = "uh")
+
+        ### Save the function u_n, as this is the complete solution. uh is only k
+        self.xdmf.write_function(self.u_n, self.t)
+
+        
+# Butcher Tableau
+
+bt_a = 1.0
+bt_b = 1.0
+bt_c = 1.0
+
+imp = RK(bt_a, bt_b, bt_c)
+
+# The method and stage number will be the inputs
+# The known solution could be adjustable (ex: the order of t)
+
+imp.mesh()
+imp.boundary()
+imp.source()
+imp.exact()
+
+
 
 def problem(u):
     return u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - f * v * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx
