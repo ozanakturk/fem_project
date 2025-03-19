@@ -1,32 +1,3 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:light
-#     text_representation:
-#       extension: .py
-#       format_name: light
-#       format_version: '1.5'
-#       jupytext_version: 1.16.5
-#   kernelspec:
-#     display_name: Python 3 (ipykernel)
-#     language: python
-#     name: python3
-# ---
-
-# # A known analytical solution
-# Author: Jørgen S. Dokken
-#
-# Just as for the [Poisson problem](./../chapter1/fundamentals_code), we construct a test problem which makes it easy to determine if the calculations are correct.
-#
-# Since we know that our first-order time-stepping scheme is exact for linear functions, we create a problem which has linear variation in time. We combine this with a quadratic variation in space. Therefore, we choose the analytical solution to be
-# \begin{align}
-# u = 1 + x^2+\alpha y^2 + \beta t
-# \end{align}
-# which yields a function whose computed values at the degrees of freedom will be exact, regardless of the mesh size and $\Delta t$ as long as the mesh is uniformly partitioned.
-# By inserting this into our original PDE, we find that the right hand side $f=\beta-2-2\alpha$. The boundary value $u_d(x,y,t)=1+x^2+\alpha y^2 + \beta t$ and the initial value $u_0(x,y)=1+x^2+\alpha y^2$.
-#
-# We start by defining the temporal discretization parameters, along with the parameters for $\alpha$ and $\beta$.
-
 from petsc4py import PETSc
 from mpi4py import MPI
 from dolfinx import mesh, fem, io
@@ -35,10 +6,13 @@ import ufl
 import numpy
 t = 0  # Start time
 T = 2  # End time
-num_steps = 20  # Number of time steps
+num_steps = 600  # Number of time steps
 dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
+
+# Boolean value for creating .xdmf file
+write = 0
 
 # Butcher Tableau
 
@@ -114,7 +88,7 @@ f = fem.Function(V)
 f.interpolate(f_help)
 # f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/heat_edit.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "heat_paraview/backward_euler.xdmf", "w")
 xdmf.write_mesh(domain)
 
 u_n = fem.Function(V, name = "u_n")
@@ -128,7 +102,7 @@ uh = fem.Function(V, name = "uh")
 xdmf.write_function(u_n, t)
 
 def problem(u):
-    return u * v * ufl.dx + dt * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - f * v * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx
+    return u * v * ufl.dx + dt * bt_a * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - f * v * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx
 
 a = fem.form(ufl.lhs(problem(k)))
 L = fem.form(ufl.rhs(problem(k)))
@@ -172,7 +146,8 @@ for n in range(num_steps):
     u_n.x.array[:] += dt * bt_b * uh.x.array
 
     ### Write complete solution of every time step to xdmf file
-    xdmf.write_function(u_n, du_Ddt_help.t)
+    if write == 1:
+        xdmf.write_function(u_n, u_exact.t)
 
 xdmf.close()
 

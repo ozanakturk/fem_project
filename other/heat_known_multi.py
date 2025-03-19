@@ -1,32 +1,3 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:light
-#     text_representation:
-#       extension: .py
-#       format_name: light
-#       format_version: '1.5'
-#       jupytext_version: 1.16.5
-#   kernelspec:
-#     display_name: Python 3 (ipykernel)
-#     language: python
-#     name: python3
-# ---
-
-# # A known analytical solution
-# Author: Jørgen S. Dokken
-#
-# Just as for the [Poisson problem](./../chapter1/fundamentals_code), we construct a test problem which makes it easy to determine if the calculations are correct.
-#
-# Since we know that our first-order time-stepping scheme is exact for linear functions, we create a problem which has linear variation in time. We combine this with a quadratic variation in space. Therefore, we choose the analytical solution to be
-# \begin{align}
-# u = 1 + x^2+\alpha y^2 + \beta t
-# \end{align}
-# which yields a function whose computed values at the degrees of freedom will be exact, regardless of the mesh size and $\Delta t$ as long as the mesh is uniformly partitioned.
-# By inserting this into our original PDE, we find that the right hand side $f=\beta-2-2\alpha$. The boundary value $u_d(x,y,t)=1+x^2+\alpha y^2 + \beta t$ and the initial value $u_0(x,y)=1+x^2+\alpha y^2$.
-#
-# We start by defining the temporal discretization parameters, along with the parameters for $\alpha$ and $\beta$.
-
 from petsc4py import PETSc
 from mpi4py import MPI
 from dolfinx import mesh, fem, io
@@ -42,7 +13,6 @@ class exact_solution():
         self.t = t
 
     def __call__(self, x):
-        #return 1 + x[0]**2 + self.alpha * x[1]**2 + (2 + 2 * self.beta) * self.t
         return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
     
 
@@ -65,7 +35,7 @@ class source_term():
         return self.beta - 2 - 2 * self.alpha + x[0] * 0
 
 class RK():
-    def __init__(self, a, b, c):
+    def __init__(self, a, b, c): # Name, order
         # Time and constants
         self.t = 0  # Start time
         self.T = 2  # End time
