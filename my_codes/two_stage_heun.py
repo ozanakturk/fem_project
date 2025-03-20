@@ -81,7 +81,7 @@ tdim = domain.topology.dim
 fdim = tdim - 1
 domain.topology.create_connectivity(fdim, tdim)
 boundary_facets = mesh.exterior_facet_indices(domain.topology)
-bc = fem.dirichletbc(du_D_dt.sub(0), fem.locate_dofs_topological(Vbig.sub(0), fdim, boundary_facets))
+bc = fem.dirichletbc(du_D_dt, fem.locate_dofs_topological(Vbig, fdim, boundary_facets))
 
 # As $f$ is a constant independent of $t$, we can define it as a constant.
 

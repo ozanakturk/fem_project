@@ -15,38 +15,13 @@ beta = 1.2
 # Boolean value for creating .xdmf file
 write = 0
 
-# Butcher Tableau
-
-"""
-c1 | a11 a12
-c2 | a21 a22
--------------
-   | b1  b2 
-
-0 |  0    0
-1 |  1    0
--------------
-  | 1/2  1/2 
-"""
-
-bt_a11 = 0.5
-bt_a12 = 0.0
-bt_a21 = 0.0
-bt_a22 = 0.5
-
-bt_b1 = 0
-bt_b2 = 1
-
-bt_c1 = 0.5
-bt_c2 = 0.5
-
 nx, ny = 5, 5
 domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, ny, mesh.CellType.triangle)
 
 # Mixed function space
 V = fem.functionspace(domain, ("Lagrange", 1))
 from basix.ufl import mixed_element
-mixed = mixed_element([V.ufl_element()] * 2)
+mixed = mixed_element([V.ufl_element()] * 4)
 Vbig = fem.functionspace(domain, mixed)
 
 class exact_solution():
@@ -77,6 +52,8 @@ du_Ddt_help = boundary_condition(alpha, beta, t)
 du_D_dt = fem.Function(Vbig)
 du_D_dt.sub(0).interpolate(du_Ddt_help)
 du_D_dt.sub(1).interpolate(du_Ddt_help)
+du_D_dt.sub(2).interpolate(du_Ddt_help)
+du_D_dt.sub(3).interpolate(du_Ddt_help)
 tdim = domain.topology.dim
 fdim = tdim - 1
 domain.topology.create_connectivity(fdim, tdim)
@@ -99,9 +76,11 @@ f_help = source_term(alpha, beta, t)
 f = fem.Function(Vbig)
 f.sub(0).interpolate(f_help)
 f.sub(1).interpolate(f_help)
+f.sub(2).interpolate(f_help)
+f.sub(3).interpolate(f_help)
 #f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/two-stage-general.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "heat_paraview/rk4.xdmf", "w")
 xdmf.write_mesh(domain)
 
 u_n = fem.Function(V, name = "u_n") # Vbig
@@ -114,12 +93,24 @@ k = ufl.TrialFunctions(Vbig)
 v = ufl.TestFunction(Vbig)
 kh = fem.Function(Vbig, name = "kh") 
 
-P = k[0] * v[0] * ufl.dx + \
-      dt * (bt_a11 * ufl.dot(ufl.grad(k[0]), ufl.grad(v[0])) + bt_a12 * ufl.dot(ufl.grad(k[0]), ufl.grad(v[0]))) * ufl.dx\
-        - f.sub(0) * v[0] * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v[0])) * ufl.dx \
-          + k[1] * v[1] * ufl.dx + \
-            dt * (bt_a21 * ufl.dot(ufl.grad(k[0]), ufl.grad(v[1])) + bt_a22 * ufl.dot(ufl.grad(k[1]), ufl.grad(v[1]))) * ufl.dx\
-                - f.sub(1) * v[1] * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v[1])) * ufl.dx \
+P = (k[0] * v[0] * ufl.dx 
+     - f.sub(0) * v[0] * ufl.dx 
+     + ufl.dot(ufl.grad(u_n), ufl.grad(v[0])) * ufl.dx
+
+     + k[1] * v[1] * ufl.dx 
+     + dt/2 * ufl.dot(ufl.grad(k[0]), ufl.grad(v[1])) * ufl.dx 
+     - f.sub(1) * v[1] * ufl.dx 
+     + ufl.dot(ufl.grad(u_n), ufl.grad(v[1])) * ufl.dx
+
+     + k[2] * v[2] * ufl.dx 
+     + dt/2 * ufl.dot(ufl.grad(k[1]), ufl.grad(v[2])) * ufl.dx 
+     - f.sub(2) * v[2] * ufl.dx 
+     + ufl.dot(ufl.grad(u_n), ufl.grad(v[2])) * ufl.dx
+
+     + k[3] * v[3] * ufl.dx 
+     + dt * ufl.dot(ufl.grad(k[2]), ufl.grad(v[3])) * ufl.dx 
+     - f.sub(3) * v[3] * ufl.dx 
+     + ufl.dot(ufl.grad(u_n), ufl.grad(v[3])) * ufl.dx)
 
 a = fem.form(ufl.lhs(P))
 L = fem.form(ufl.rhs(P))
@@ -136,20 +127,6 @@ solver.getPC().setType(PETSc.PC.Type.LU)
 for n in range(num_steps):
     u_exact.t += dt
     u_maxError.interpolate(u_exact)
-
-    # Update Diriclet boundary condition
-    du_Ddt_help.t += dt * bt_c1
-    du_D_dt.sub(0).interpolate(du_Ddt_help)
-    du_Ddt_help.t += - dt * bt_c1 + dt * bt_c2
-    du_D_dt.sub(1).interpolate(du_Ddt_help)
-    du_Ddt_help.t += - dt * bt_c2 + dt
-    
-    # Update source term
-    f_help.t +=  dt * bt_c1
-    f.sub(0).interpolate(f_help)
-    f_help.t += - dt * bt_c1 + dt * bt_c2
-    f.sub(1).interpolate(f_help)
-    f_help.t += - dt * bt_c2 + dt
     
     # Update the right hand side reusing the initial vector
     with b.localForm() as loc_b:
@@ -166,7 +143,7 @@ for n in range(num_steps):
     
     ###Updateing the previous step
 
-    u_n.x.array[:] += bt_b1 * dt * kh.x.array[0] + bt_b2 * dt * kh.x.array[1]
+    u_n.x.array[:] += 1/6 * dt * (kh.x.array[0] + 2 * kh.x.array[1] + 2 * kh.x.array[2] + kh.x.array[3])
 
     ### Write complete solution of every time step to xdmf file
     if write == 1:
