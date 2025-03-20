@@ -1,5 +1,6 @@
 from petsc4py import PETSc
 from mpi4py import MPI
+import ufl.split_functions
 from dolfinx import mesh, fem, io
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector, apply_lifting, create_vector, set_bc
 import ufl
@@ -21,16 +22,23 @@ c1 | a11 a12
 c2 | a21 a22
 -------------
    | b1  b2 
+
+0 |  0    0
+1 |  1    0
+-------------
+  | 1/2  1/2 
 """
 
-bt_a11 = 0.0
+bt_a11 = 0.5
 bt_a12 = 0.0
-bt_a21 = 1.0
-bt_a22 = 0.0
-bt_b1 = 1.0
-bt_b2 = 1.0
-bt_c1 = 0.0
-bt_c2 = 1.0
+bt_a21 = 0.0
+bt_a22 = 0.5
+
+bt_b1 = 0
+bt_b2 = 1
+
+bt_c1 = 0.5
+bt_c2 = 0.5
 
 nx, ny = 5, 5
 domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, ny, mesh.CellType.triangle)
@@ -91,8 +99,9 @@ f_help = source_term(alpha, beta, t)
 f = fem.Function(Vbig)
 f.sub(0).interpolate(f_help)
 f.sub(1).interpolate(f_help)
+#f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/improved_euler.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "heat_paraview/two-stage-general.xdmf", "w")
 xdmf.write_mesh(domain)
 
 u_n = fem.Function(V, name = "u_n") # Vbig
@@ -101,40 +110,46 @@ u_n.interpolate(u_exact)
 ### Save the function u_n, as this is the complete solution. uh is only k
 xdmf.write_function(u_n, t)
 
-k1 = ufl.TrialFunction(Vbig.sub(0))
-k2 = ufl.TrialFunction(Vbig.sub(1))
-v1 = ufl.TestFunction(Vbig.sub(0))
-v2 = ufl.TestFunction(Vbig.sub(1))
+k = ufl.TrialFunctions(Vbig)
+v = ufl.TestFunction(Vbig)
 kh = fem.Function(Vbig, name = "kh") 
 
-P1 = k1 * v1 * ufl.dx - f.sub(0) * v1 * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v1)) * ufl.dx \
-    - (k2 * v2 * ufl.dx + dt * ufl.dot(ufl.grad(k1), ufl.grad(v2)) * ufl.dx \
-    - f.sub(1) * v2 * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v2)) * ufl.dx)
+P = k[0] * v[0] * ufl.dx + \
+      dt * (bt_a11 * ufl.dot(ufl.grad(k[0]), ufl.grad(v[0])) + bt_a12 * ufl.dot(ufl.grad(k[0]), ufl.grad(v[0]))) * ufl.dx\
+        - f.sub(0) * v[0] * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v[0])) * ufl.dx \
+          + k[1] * v[1] * ufl.dx + \
+            dt * (bt_a21 * ufl.dot(ufl.grad(k[0]), ufl.grad(v[1])) + bt_a22 * ufl.dot(ufl.grad(k[1]), ufl.grad(v[1]))) * ufl.dx\
+                - f.sub(1) * v[1] * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v[1])) * ufl.dx \
+
+a = fem.form(ufl.lhs(P))
+L = fem.form(ufl.rhs(P))
+
+A = assemble_matrix(a, bcs=[bc])
+A.assemble()
+b = create_vector(L)
+
+solver = PETSc.KSP().create(domain.comm)
+solver.setOperators(A)
+solver.setType(PETSc.KSP.Type.PREONLY)
+solver.getPC().setType(PETSc.PC.Type.LU)
 
 for n in range(num_steps):
     u_exact.t += dt
     u_maxError.interpolate(u_exact)
 
-    #################### First stage ####################
-    a = fem.form(ufl.lhs(P1))
-    L = fem.form(ufl.rhs(P1))
-
-    A = assemble_matrix(a, bcs=[bc])
-    A.assemble()
-    b = create_vector(L)
-
-    solver = PETSc.KSP().create(domain.comm)
-    solver.setOperators(A)
-    solver.setType(PETSc.KSP.Type.PREONLY)
-    solver.getPC().setType(PETSc.PC.Type.LU)
-
     # Update Diriclet boundary condition
     du_Ddt_help.t += dt * bt_c1
     du_D_dt.sub(0).interpolate(du_Ddt_help)
+    du_Ddt_help.t += - dt * bt_c1 + dt * bt_c2
+    du_D_dt.sub(1).interpolate(du_Ddt_help)
+    du_Ddt_help.t += - dt * bt_c2 + dt
     
     # Update source term
     f_help.t +=  dt * bt_c1
     f.sub(0).interpolate(f_help)
+    f_help.t += - dt * bt_c1 + dt * bt_c2
+    f.sub(1).interpolate(f_help)
+    f_help.t += - dt * bt_c2 + dt
     
     # Update the right hand side reusing the initial vector
     with b.localForm() as loc_b:
@@ -146,51 +161,17 @@ for n in range(num_steps):
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     set_bc(b, [bc])
     
-    solver.solve(b, kh.sub(0).x.petsc_vec)
-    kh.sub(0).x.scatter_forward()
-    """
-    #################### Second stage ####################
-    a = fem.form(ufl.lhs(P2))
-    L = fem.form(ufl.rhs(P2))
-
-    A = assemble_matrix(a, bcs=[bc])
-    A.assemble()
-    b = create_vector(L)
-
-    solver = PETSc.KSP().create(domain.comm)
-    solver.setOperators(A)
-    solver.setType(PETSc.KSP.Type.PREONLY)
-    solver.getPC().setType(PETSc.PC.Type.LU)
-
-    # Update Diriclet boundary condition
-    du_Ddt_help.t += dt * bt_c2
-    du_D_dt.sub(1).interpolate(du_Ddt_help)
-
-    # Update source term
-    f_help.t +=  dt * bt_c2
-    f.interpolate(f_help)
-
-    # Update the right hand side reusing the initial vector
-    with b.localForm() as loc_b:
-        loc_b.set(0)
-    assemble_vector(b, L)
-
-    # Apply Dirichlet boundary condition to the vector
-    apply_lifting(b, [a], [[bc]])
-    b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    set_bc(b, [bc])
-    
-    solver.solve(b, kh.sub(1).x.petsc_vec)
-    kh.sub(1).x.scatter_forward()
+    solver.solve(b, kh.x.petsc_vec)
+    kh.x.scatter_forward()
     
     ###Updateing the previous step
 
-    u_n.x.array[:] += 0.5 * dt * (kh.sub(0).x.array + kh.sub(1).x.array)
+    u_n.x.array[:] += bt_b1 * dt * kh.x.array[0] + bt_b2 * dt * kh.x.array[1]
 
     ### Write complete solution of every time step to xdmf file
     if write == 1:
-        xdmf.write_function(u_n, u_exact.t)"
-    """
+        xdmf.write_function(u_n, u_exact.t)
+    
 
 xdmf.close()
 
