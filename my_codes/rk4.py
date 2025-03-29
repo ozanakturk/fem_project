@@ -148,21 +148,18 @@ for n in range(num_steps):
     ### Write complete solution of every time step to xdmf file
     if write == 1:
         xdmf.write_function(u_n, u_exact.t)
-    
-
 xdmf.close()
-
 
 V_ex = fem.functionspace(domain, ("Lagrange", 2))
 u_ex = fem.Function(V_ex)
 u_ex.interpolate(u_exact)
-### Computer the L2 error of the solution, therefore, take u_n and not uh, as uh is only k1
+### Compute the L2 error of the solution
 error_L2 = numpy.sqrt(domain.comm.allreduce(fem.assemble_scalar(fem.form((u_n - u_ex)**2 * ufl.dx)), op=MPI.SUM))
 if domain.comm.rank == 0:
     print(f"L2-error: {error_L2:.2e}")
 
 # Compute values at mesh vertices
-### Computer the maximum nodal error of the solution, therefore, take u_n and not uh, as uh is only k1
+### Compute the maximum nodal error of the solution
 error_max = domain.comm.allreduce(numpy.max(numpy.abs(u_n.x.array - u_maxError.x.array)), op=MPI.MAX)
 if domain.comm.rank == 0:
     print(f"Error_max: {error_max:.2e}")

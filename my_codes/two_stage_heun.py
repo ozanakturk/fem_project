@@ -7,7 +7,7 @@ import ufl
 import numpy
 t = 0  # Start time
 T = 2  # End time
-num_steps = 600  # Number of time steps
+num_steps = 20  # Number of time steps
 dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
@@ -158,8 +158,7 @@ for n in range(num_steps):
     solver.solve(b, kh.x.petsc_vec)
     kh.x.scatter_forward()
     
-    ###Updateing the previous step
-
+    ###Updating the previous step
     u_n.x.array[:] += 0.5 * dt * (kh.x.array[0] + kh.x.array[1])
 
     ### Write complete solution of every time step to xdmf file
