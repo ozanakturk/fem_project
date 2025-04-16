@@ -35,7 +35,7 @@ boundary_facets = mesh.locate_entities_boundary(
     domain, fdim, lambda x: np.full(x.shape[1], True, dtype=bool))
 bc = fem.dirichletbc(PETSc.ScalarType(0), fem.locate_dofs_topological(V, fdim, boundary_facets), V)
 
-xdmf = io.XDMFFile(domain.comm, "diffusion.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "fenics_tutorial/diffusion.xdmf", "w")
 xdmf.write_mesh(domain)
 
 # Define solution variable, and interpolate initial solution for visualization in Paraview

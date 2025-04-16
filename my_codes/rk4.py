@@ -7,7 +7,7 @@ import ufl
 import numpy
 t = 0  # Start time
 T = 2  # End time
-num_steps = 600  # Number of time steps
+num_steps = 200  # Number of time steps
 dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
@@ -31,6 +31,7 @@ class exact_solution():
         self.t = t
 
     def __call__(self, x):
+        #return 1 + x[0]**2 + self.alpha * x[1]**2 + (2 + 2 * self.beta) * self.t
         return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
 
 u_exact = exact_solution(alpha, beta, t)
@@ -46,14 +47,13 @@ class boundary_condition():
 
     def __call__(self, x):
         return self.beta + x[0] * 0
+        #return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
 
 du_Ddt_help = boundary_condition(alpha, beta, t)
 
 du_D_dt = fem.Function(Vbig)
 du_D_dt.sub(0).interpolate(du_Ddt_help)
 du_D_dt.sub(1).interpolate(du_Ddt_help)
-du_D_dt.sub(2).interpolate(du_Ddt_help)
-du_D_dt.sub(3).interpolate(du_Ddt_help)
 tdim = domain.topology.dim
 fdim = tdim - 1
 domain.topology.create_connectivity(fdim, tdim)
@@ -69,7 +69,8 @@ class source_term():
         self.t = t
 
     def __call__(self, x):
-        return self.beta - 2 - 2 * alpha + x[0] * 0
+        #return x[0] * 0
+        return self.beta - 2 - 2 * self.alpha + x[0] * 0
 
 f_help = source_term(alpha, beta, t)
 

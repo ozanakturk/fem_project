@@ -6,19 +6,19 @@ import ufl
 import numpy
 t = 0  # Start time
 T = 2  # End time
-num_steps = 600  # Number of time steps
+num_steps = 20  # Number of time steps
 dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
 
 # Boolean value for creating .xdmf file
-write = 0
+write = 1
 
 # Butcher Tableau
 
-bt_a = 0.0
+bt_a = 1.0
 bt_b = 1.0
-bt_c = 0.0
+bt_c = 1.0
 
 # As for the previous problem, we define the mesh and appropriate function spaces.
 
@@ -40,8 +40,7 @@ class exact_solution():
         self.t = t
 
     def __call__(self, x):
-        #return 1 + x[0]**2 + self.alpha * x[1]**2 + (2 + 2 * self.beta) * self.t
-        return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
+        return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t**2
 
 u_exact = exact_solution(alpha, beta, t)
 
@@ -55,7 +54,7 @@ class boundary_condition():
         self.t = t
 
     def __call__(self, x):
-        return self.beta + x[0] * 0
+        return 2*self.beta*self.t + x[0] * 0  # self.beta + 
 
 du_Ddt_help = boundary_condition(alpha, beta, t)
 
@@ -77,7 +76,7 @@ class source_term():
 
     def __call__(self, x):
         #return x[0] * 0
-        return self.beta - 2 - 2 * self.alpha + x[0] * 0
+        return 2*self.beta*self.t - 2 - 2 * self.alpha + x[0] * 0
 
 f_help = source_term(alpha, beta, t)
 
@@ -85,9 +84,26 @@ f = fem.Function(V)
 f.interpolate(f_help)
 # f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/forward_euler.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "order_test/backward_euler_2.xdmf", "w")
 xdmf.write_mesh(domain)
 
+"""
+import numpy as np
+class initial_cond():
+    def __init__(self, alpha, beta, t):
+        self.alpha = alpha
+        self.beta = beta
+        self.t = t
+
+    def __call__(self, x):
+        #return x[0] * 0
+        return np.exp(-alpha * (x[0]**2 + x[1]**2))
+
+u_n_help = initial_cond(alpha, beta, t)
+
+u_n = fem.Function(V)
+u_n.interpolate(u_n_help)
+"""
 u_n = fem.Function(V, name = "u_n")
 u_n.interpolate(u_exact)
 
@@ -99,7 +115,7 @@ uh = fem.Function(V, name = "uh")
 xdmf.write_function(u_n, t)
 
 def problem(u):
-    return u * v * ufl.dx - f * v * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx
+    return u * v * ufl.dx + dt * bt_a * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - f * v * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx
 
 a = fem.form(ufl.lhs(problem(k)))
 L = fem.form(ufl.rhs(problem(k)))
@@ -126,7 +142,6 @@ for n in range(num_steps):
     # Update source term
     f_help.t +=  dt * bt_c
     f.interpolate(f_help)
-    f_help.t -=  dt * bt_c - dt
 
     # Update the right hand side reusing the initial vector
     with b.localForm() as loc_b:
@@ -141,14 +156,13 @@ for n in range(num_steps):
     solver.solve(b, uh.x.petsc_vec)
     uh.x.scatter_forward()
 
-    u_n.x.array[:] += dt * uh.x.array
+    u_n.x.array[:] += dt * bt_b * uh.x.array
 
     ### Write complete solution of every time step to xdmf file
     if write == 1:
         xdmf.write_function(u_n, u_exact.t)
 
 xdmf.close()
-
 
 V_ex = fem.functionspace(domain, ("Lagrange", 2))
 u_ex = fem.Function(V_ex)

@@ -84,10 +84,21 @@ u_n.name = "u_n"
 u_n.interpolate(u_exact)
 
 # As $f$ is a constant independent of $t$, we can define it as a constant.
+class source():
+    def __init__(self, alpha, beta, t):
+        self.alpha = alpha
+        self.beta = beta
+        self.t = t
 
-f = fem.Constant(domain, beta - 2 - 2 * alpha)
+    def __call__(self, x):
+        return self.beta - 2 - 2 * self.alpha + 0 * x[0]
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/heat_known.xdmf", "w")
+f_help = source(alpha, beta, t)
+f = fem.Function(V)
+f.name = "f"
+f.interpolate(f_help)
+
+xdmf = io.XDMFFile(domain.comm, "order_test/heat_known_1.xdmf", "w")
 xdmf.write_mesh(domain)
 
 # We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
@@ -127,6 +138,9 @@ for n in range(num_steps):
     # Update Diriclet boundary condition
     u_exact.t += dt
     u_D.interpolate(u_exact)
+
+    f_help.t += dt
+    f.interpolate(f_help)
     
     # Update the right hand side reusing the initial vector
     with b.localForm() as loc_b:

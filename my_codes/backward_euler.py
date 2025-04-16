@@ -6,7 +6,7 @@ import ufl
 import numpy
 t = 0  # Start time
 T = 2  # End time
-num_steps = 600  # Number of time steps
+num_steps = 20  # Number of time steps
 dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
@@ -40,7 +40,6 @@ class exact_solution():
         self.t = t
 
     def __call__(self, x):
-        #return 1 + x[0]**2 + self.alpha * x[1]**2 + (2 + 2 * self.beta) * self.t
         return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
 
 u_exact = exact_solution(alpha, beta, t)
@@ -55,9 +54,7 @@ class boundary_condition():
         self.t = t
 
     def __call__(self, x):
-        return self.beta + x[0] * 0
-        #return 2 * self.beta * self.t + x[0] * 0
-        #return 1 + x[0]**2 + self.alpha * x[1]**2 + self.beta * self.t
+        return self.beta + x[0] * 0  # self.beta + 
 
 du_Ddt_help = boundary_condition(alpha, beta, t)
 
@@ -79,8 +76,7 @@ class source_term():
 
     def __call__(self, x):
         #return x[0] * 0
-        return self.beta - 2 - 2 * alpha + x[0] * 0
-        return 2 * self.beta * self.t - 2 - 2 * self.alpha + x[0] * 0
+        return self.beta - 2 - 2 * self.alpha + x[0] * 0
 
 f_help = source_term(alpha, beta, t)
 
@@ -91,6 +87,23 @@ f.interpolate(f_help)
 xdmf = io.XDMFFile(domain.comm, "heat_paraview/backward_euler.xdmf", "w")
 xdmf.write_mesh(domain)
 
+"""
+import numpy as np
+class initial_cond():
+    def __init__(self, alpha, beta, t):
+        self.alpha = alpha
+        self.beta = beta
+        self.t = t
+
+    def __call__(self, x):
+        #return x[0] * 0
+        return np.exp(-alpha * (x[0]**2 + x[1]**2))
+
+u_n_help = initial_cond(alpha, beta, t)
+
+u_n = fem.Function(V)
+u_n.interpolate(u_n_help)
+"""
 u_n = fem.Function(V, name = "u_n")
 u_n.interpolate(u_exact)
 
@@ -150,7 +163,6 @@ for n in range(num_steps):
         xdmf.write_function(u_n, u_exact.t)
 
 xdmf.close()
-
 
 V_ex = fem.functionspace(domain, ("Lagrange", 2))
 u_ex = fem.Function(V_ex)
