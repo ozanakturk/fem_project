@@ -95,7 +95,6 @@ class source():
 
 f_help = source(alpha, beta, t)
 f = fem.Function(V)
-f.name = "f"
 f.interpolate(f_help)
 
 xdmf = io.XDMFFile(domain.comm, "order_test/heat_known_2.xdmf", "w")
