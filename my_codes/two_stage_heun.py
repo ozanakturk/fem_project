@@ -104,7 +104,7 @@ f.sub(0).interpolate(f_help)
 f.sub(1).interpolate(f_help)
 #f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/heun.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "my_codes/heat_paraview/heun.xdmf", "w")
 xdmf.write_mesh(domain)
 
 u_n = fem.Function(V, name = "u_n") # Vbig

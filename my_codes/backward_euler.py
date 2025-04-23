@@ -84,7 +84,7 @@ f = fem.Function(V)
 f.interpolate(f_help)
 # f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/backward_euler.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "my_codes/heat_paraview/backward_euler.xdmf", "w")
 xdmf.write_mesh(domain)
 
 """

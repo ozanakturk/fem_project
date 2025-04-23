@@ -81,7 +81,7 @@ f.sub(2).interpolate(f_help)
 f.sub(3).interpolate(f_help)
 #f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "heat_paraview/rk4.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "my_codes/heat_paraview/rk4.xdmf", "w")
 xdmf.write_mesh(domain)
 
 u_n = fem.Function(V, name = "u_n") # Vbig
