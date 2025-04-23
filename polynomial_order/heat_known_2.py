@@ -69,6 +69,7 @@ u_exact = exact_solution(alpha, beta, t)
 # As in the previous chapters, we define a Dirichlet boundary condition over the whole boundary
 
 u_D = fem.Function(V)
+u_D.name = 'u_D'
 u_D.interpolate(u_exact)
 tdim = domain.topology.dim
 fdim = tdim - 1
@@ -82,6 +83,14 @@ bc = fem.dirichletbc(u_D, fem.locate_dofs_topological(V, fdim, boundary_facets))
 u_n = fem.Function(V)
 u_n.name = "u_n"
 u_n.interpolate(u_exact)
+
+# Writing the XDMF files
+
+xdmf = io.XDMFFile(domain.comm, "polynomial_order/order_test/heat_known_2.xdmf", "w")
+xdmf.write_mesh(domain)
+
+xdmf.write_function(u_n, u_exact.t)
+xdmf.write_function(u_D, u_exact.t)
 
 # As $f$ is a constant independent of $t$, we can define it as a constant.
 class source():
@@ -97,9 +106,6 @@ f_help = source(alpha, beta, t)
 f = fem.Function(V)
 f.interpolate(f_help)
 
-xdmf = io.XDMFFile(domain.comm, "order_test/heat_known_2.xdmf", "w")
-xdmf.write_mesh(domain)
-
 # We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.
 
 u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
@@ -114,8 +120,6 @@ A = assemble_matrix(a, bcs=[bc])
 A.assemble()
 b = create_vector(L)
 uh = fem.Function(V)
-
-xdmf.write_function(u_n, u_exact.t)
 
 # ## Define a linear variational solver
 # We will use [PETSc](https://www.mcs.anl.gov/petsc/) to solve the resulting linear algebra problem. We use the Python-API `petsc4py` to define the solver. We will use a linear solver.
@@ -159,6 +163,7 @@ for n in range(num_steps):
     # Update solution at previous time step (u_n)
     u_n.x.array[:] = uh.x.array
     xdmf.write_function(u_n, u_exact.t)
+    xdmf.write_function(u_D, u_exact.t)
 xdmf.close()
 
 # ## Verifying the numerical solution

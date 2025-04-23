@@ -58,7 +58,7 @@ class boundary_condition():
 
 du_Ddt_help = boundary_condition(alpha, beta, t)
 
-du_D_dt = fem.Function(V)
+du_D_dt = fem.Function(V, name = "du_D_dt")
 du_D_dt.interpolate(du_Ddt_help)
 tdim = domain.topology.dim
 fdim = tdim - 1
@@ -79,40 +79,27 @@ class source_term():
         return 2*self.beta*self.t - 2 - 2 * self.alpha + x[0] * 0
 
 f_help = source_term(alpha, beta, t)
-
 f = fem.Function(V)
 f.interpolate(f_help)
-# f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "order_test/backward_euler_2.xdmf", "w")
-xdmf.write_mesh(domain)
-
-"""
-import numpy as np
-class initial_cond():
-    def __init__(self, alpha, beta, t):
-        self.alpha = alpha
-        self.beta = beta
-        self.t = t
-
-    def __call__(self, x):
-        #return x[0] * 0
-        return np.exp(-alpha * (x[0]**2 + x[1]**2))
-
-u_n_help = initial_cond(alpha, beta, t)
-
-u_n = fem.Function(V)
-u_n.interpolate(u_n_help)
-"""
 u_n = fem.Function(V, name = "u_n")
 u_n.interpolate(u_exact)
+
+# XDMF file
+
+xdmf = io.XDMFFile(domain.comm, "polynomial_order/order_test/backward_euler_2.xdmf", "w")
+xdmf.write_mesh(domain)
+
+xdmf.write_function(u_n, t)
+xdmf.write_function(du_D_dt, u_exact.t)
+
+# Variational problem
 
 k = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
 uh = fem.Function(V, name = "uh")
 
 ### Save the function u_n, as this is the complete solution. uh is only k
-xdmf.write_function(u_n, t)
 
 def problem(u):
     return u * v * ufl.dx + dt * bt_a * ufl.dot(ufl.grad(u), ufl.grad(v)) * ufl.dx - f * v * ufl.dx + ufl.dot(ufl.grad(u_n), ufl.grad(v)) * ufl.dx
@@ -161,6 +148,7 @@ for n in range(num_steps):
     ### Write complete solution of every time step to xdmf file
     if write == 1:
         xdmf.write_function(u_n, u_exact.t)
+        xdmf.write_function(du_D_dt, u_exact.t)
 
 xdmf.close()
 

@@ -98,7 +98,7 @@ f = fem.Function(V)
 f.name = "f"
 f.interpolate(f_help)
 
-xdmf = io.XDMFFile(domain.comm, "order_test/heat_known_1.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "polynomial_order/order_test/heat_known_1.xdmf", "w")
 xdmf.write_mesh(domain)
 
 # We can now create our variational formulation, with the bilinear form `a` and  linear form `L`.

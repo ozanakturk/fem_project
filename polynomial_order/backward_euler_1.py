@@ -84,7 +84,7 @@ f = fem.Function(V)
 f.interpolate(f_help)
 # f = fem.Constant(domain, beta - 2 - 2 * alpha)
 
-xdmf = io.XDMFFile(domain.comm, "order_test/backward_euler_1.xdmf", "w")
+xdmf = io.XDMFFile(domain.comm, "polynomial_order/order_test/backward_euler_1.xdmf", "w")
 xdmf.write_mesh(domain)
 
 """
