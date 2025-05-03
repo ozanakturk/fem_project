@@ -7,7 +7,7 @@ import ufl
 import numpy
 t = 0  # Start time
 T = 2  # End time
-num_steps = 200  # Number of time steps
+num_steps = 20  # Number of time steps
 dt = (T - t) / num_steps  # Time step size
 alpha = 3
 beta = 1.2
@@ -54,6 +54,8 @@ du_Ddt_help = boundary_condition(alpha, beta, t)
 du_D_dt = fem.Function(Vbig)
 du_D_dt.sub(0).interpolate(du_Ddt_help)
 du_D_dt.sub(1).interpolate(du_Ddt_help)
+du_D_dt.sub(2).interpolate(du_Ddt_help)
+du_D_dt.sub(3).interpolate(du_Ddt_help)
 tdim = domain.topology.dim
 fdim = tdim - 1
 domain.topology.create_connectivity(fdim, tdim)
@@ -94,7 +96,8 @@ k = ufl.TrialFunctions(Vbig)
 v = ufl.TestFunction(Vbig)
 kh = fem.Function(Vbig, name = "kh") 
 
-P = (k[0] * v[0] * ufl.dx 
+P = (
+     k[0] * v[0] * ufl.dx 
      - f.sub(0) * v[0] * ufl.dx 
      + ufl.dot(ufl.grad(u_n), ufl.grad(v[0])) * ufl.dx
 
@@ -111,7 +114,8 @@ P = (k[0] * v[0] * ufl.dx
      + k[3] * v[3] * ufl.dx 
      + dt * ufl.dot(ufl.grad(k[2]), ufl.grad(v[3])) * ufl.dx 
      - f.sub(3) * v[3] * ufl.dx 
-     + ufl.dot(ufl.grad(u_n), ufl.grad(v[3])) * ufl.dx)
+     + ufl.dot(ufl.grad(u_n), ufl.grad(v[3])) * ufl.dx
+    )
 
 a = fem.form(ufl.lhs(P))
 L = fem.form(ufl.rhs(P))
@@ -128,7 +132,22 @@ solver.getPC().setType(PETSc.PC.Type.LU)
 for n in range(num_steps):
     u_exact.t += dt
     u_maxError.interpolate(u_exact)
-    
+
+    # Source term interpolation?
+    f.sub(0).interpolate(f_help)
+    f_help.t += dt/2
+    f.sub(1).interpolate(f_help)
+    f.sub(2).interpolate(f_help)
+    f_help.t += dt/2
+    f.sub(3).interpolate(f_help)
+
+    du_D_dt.sub(0).interpolate(du_Ddt_help)
+    du_Ddt_help.t += dt/2
+    du_D_dt.sub(1).interpolate(du_Ddt_help)
+    du_D_dt.sub(2).interpolate(du_Ddt_help)
+    du_Ddt_help.t += dt/2
+    du_D_dt.sub(3).interpolate(du_Ddt_help)
+        
     # Update the right hand side reusing the initial vector
     with b.localForm() as loc_b:
         loc_b.set(0)
